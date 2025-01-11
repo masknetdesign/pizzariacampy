@@ -2,6 +2,7 @@
 class Pedido {
     private $conn;
     private $table_name = "pedidos";
+    private $items_table = "pedido_itens";
 
     public function __construct($db) {
         $this->conn = $db;
@@ -10,45 +11,41 @@ class Pedido {
     public function criar($dados) {
         try {
             $this->conn->beginTransaction();
+
+            // Separar endereço em componentes
+            $endereco = explode(',', $dados['endereco_entrega'], 2);
+            $rua = trim($endereco[0]);
+            $resto = isset($endereco[1]) ? trim($endereco[1]) : '';
             
+            // Extrair número, complemento e bairro
+            preg_match('/^([^-]+)(?:\s*-\s*([^-]+))?\s*-\s*([^(]+)(?:\s*\(Ref:\s*([^)]+)\))?$/', $resto, $matches);
+            
+            $numero = trim($matches[1] ?? '');
+            $complemento = isset($matches[2]) ? trim($matches[2]) : null;
+            $bairro = trim($matches[3] ?? '');
+            $referencia = isset($matches[4]) ? trim($matches[4]) : null;
+
             // Inserir pedido
-            $stmt = $this->conn->prepare("
-                INSERT INTO pedidos (
-                    usuario_id, 
-                    endereco_rua, 
-                    endereco_numero, 
-                    endereco_complemento, 
-                    endereco_bairro, 
-                    endereco_referencia,
-                    forma_pagamento,
-                    troco_para,
-                    valor_total,
-                    status
-                ) VALUES (
-                    :usuario_id,
-                    :rua,
-                    :numero,
-                    :complemento,
-                    :bairro,
-                    :referencia,
-                    :forma_pagamento,
-                    :troco_para,
-                    :valor_total,
-                    'pendente'
-                )
-            ");
+            $query = "INSERT INTO " . $this->table_name . "
+                    (usuario_id, endereco_rua, endereco_numero, endereco_complemento, 
+                     endereco_bairro, endereco_referencia, forma_pagamento, troco_para, status)
+                    VALUES (:usuario_id, :rua, :numero, :complemento, 
+                            :bairro, :referencia, :forma_pagamento, :troco, 'pendente')";
             
-            $stmt->execute([
-                ':usuario_id' => $dados['usuario_id'],
-                ':rua' => $dados['rua'],
-                ':numero' => $dados['numero'],
-                ':complemento' => $dados['complemento'] ?? '',
-                ':bairro' => $dados['bairro'],
-                ':referencia' => $dados['referencia'] ?? '',
-                ':forma_pagamento' => $dados['forma_pagamento'],
-                ':troco_para' => $dados['troco'] ?? null,
-                ':valor_total' => $dados['valor_total']
-            ]);
+            $stmt = $this->conn->prepare($query);
+            
+            $stmt->bindParam(":usuario_id", $dados['usuario_id']);
+            $stmt->bindParam(":rua", $rua);
+            $stmt->bindParam(":numero", $numero);
+            $stmt->bindParam(":complemento", $complemento);
+            $stmt->bindParam(":bairro", $bairro);
+            $stmt->bindParam(":referencia", $referencia);
+            $stmt->bindParam(":forma_pagamento", $dados['forma_pagamento']);
+            $stmt->bindParam(":troco", $dados['troco']);
+            
+            if (!$stmt->execute()) {
+                throw new Exception("Erro ao criar pedido");
+            }
             
             $pedido_id = $this->conn->lastInsertId();
             
@@ -132,14 +129,15 @@ class Pedido {
         try {
             $stmt = $this->conn->prepare("
                 UPDATE pedidos 
-                SET status = :status
+                SET status = :status,
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE id = :pedido_id
             ");
             
-            return $stmt->execute([
-                ':status' => $novo_status,
-                ':pedido_id' => $pedido_id
-            ]);
+            $stmt->bindParam(":status", $novo_status);
+            $stmt->bindParam(":pedido_id", $pedido_id);
+            
+            return $stmt->execute();
             
         } catch (Exception $e) {
             error_log("Erro ao atualizar status: " . $e->getMessage());
@@ -160,7 +158,7 @@ class Pedido {
         ");
         
         $stmt->execute([$usuario_id]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $stmt;
     }
 
     public function listarPedidos($status = null, $limit = 50) {
@@ -211,6 +209,50 @@ class Pedido {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function getDetalhes($pedido_id) {
+        try {
+            // Buscar informações do pedido
+            $query = "SELECT p.*, u.nome as cliente_nome, u.email as cliente_email
+                    FROM " . $this->table_name . " p
+                    JOIN usuarios u ON p.usuario_id = u.id
+                    WHERE p.id = :pedido_id";
+            
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(":pedido_id", $pedido_id);
+            $stmt->execute();
+            
+            $pedido = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$pedido) {
+                return null;
+            }
+            
+            // Buscar itens do pedido
+            $query = "SELECT pi.*, p.nome as produto_nome, p.imagem as produto_imagem,
+                            t.nome as tamanho_nome, b.nome as borda_nome
+                    FROM " . $this->items_table . " pi
+                    JOIN produtos p ON pi.produto_id = p.id
+                    LEFT JOIN tamanhos t ON pi.tamanho_id = t.id
+                    LEFT JOIN bordas b ON pi.borda_id = b.id
+                    WHERE pi.pedido_id = :pedido_id";
+            
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(":pedido_id", $pedido_id);
+            $stmt->execute();
+            
+            $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            return [
+                'pedido' => $pedido,
+                'itens' => $itens
+            ];
+            
+        } catch (Exception $e) {
+            error_log("Erro ao buscar detalhes do pedido: " . $e->getMessage());
+            return null;
+        }
+    }
+
     public function getEstatisticas() {
         $stats = [];
         
@@ -235,6 +277,12 @@ class Pedido {
         $stats['produtos_populares'] = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         
         return $stats;
+    }
+
+    public function countPedidos() {
+        $stmt = $this->conn->prepare("SELECT COUNT(*) FROM " . $this->table_name);
+        $stmt->execute();
+        return $stmt->fetchColumn();
     }
 }
 ?>

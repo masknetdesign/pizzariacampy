@@ -21,23 +21,19 @@ if (!$auth->isLoggedIn()) {
 }
 
 $usuario = $auth->getUser();
+$isAdmin = $auth->isAdmin();
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['id'])) {
-    $pedido_info = $pedido->buscarPedido($_GET['id']);
+    $pedido_info = $pedido->getDetalhes($_GET['id']);
     
-    // Verificar se o pedido existe e pertence ao usuário
-    if (!$pedido_info || $pedido_info['usuario_id'] != $usuario['id']) {
+    // Verificar se o pedido existe e se o usuário tem permissão
+    if (!$pedido_info || (!$isAdmin && $pedido_info['pedido']['usuario_id'] != $usuario['id'])) {
         http_response_code(404);
         echo json_encode(['error' => 'Pedido não encontrado']);
         exit;
     }
     
-    $itens = $pedido->buscarItensPedido($_GET['id']);
-    
-    echo json_encode([
-        'pedido' => $pedido_info,
-        'itens' => $itens
-    ]);
+    echo json_encode($pedido_info);
     
 } else if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Verificar se há itens no carrinho
@@ -151,6 +147,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['id'])) {
         error_log("Erro ao criar pedido: " . $e->getMessage());
         http_response_code(500);
         echo json_encode(['error' => 'Erro ao processar pedido']);
+    }
+    
+} else if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+    // Verificar se é admin
+    if (!$isAdmin) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Acesso negado']);
+        exit;
+    }
+    
+    // Pegar dados do corpo da requisição
+    parse_str(file_get_contents("php://input"), $dados);
+    
+    if (!isset($dados['id']) || !isset($dados['status'])) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Dados incompletos']);
+        exit;
+    }
+    
+    // Validar status
+    $statusValidos = ['recebido', 'preparando', 'saiu_entrega', 'entregue'];
+    if (!in_array($dados['status'], $statusValidos)) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Status inválido']);
+        exit;
+    }
+
+    if ($pedido->atualizarStatus($dados['id'], $dados['status'])) {
+        echo json_encode(['success' => true]);
+    } else {
+        http_response_code(500);
+        echo json_encode(['error' => 'Erro ao atualizar status']);
     }
     
 } else {

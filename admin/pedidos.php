@@ -17,6 +17,7 @@ if (!$auth->isAdmin()) {
 
 $status_filtro = isset($_GET['status']) ? $_GET['status'] : null;
 $pedidos = $pedido->listarPedidos($status_filtro);
+$total_pedidos = $pedido->countPedidos();
 ?>
 
 <!DOCTYPE html>
@@ -75,6 +76,18 @@ $pedidos = $pedido->listarPedidos($status_filtro);
             <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                     <h1 class="h2">Gerenciar Pedidos</h1>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-secondary me-2" onclick="simularPedido()">
+                            <i class="bi bi-play-fill"></i> Simular Novo Pedido
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="testSound()">
+                            <i class="bi bi-volume-up"></i> Testar Som
+                        </button>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="soundToggle" checked>
+                            <label class="form-check-label" for="soundToggle">Alerta Sonoro</label>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Filtros -->
@@ -173,12 +186,33 @@ $pedidos = $pedido->listarPedidos($status_filtro);
         </div>
     </div>
 
+    <!-- Audio elemento -->
+    <audio id="newOrderSound" preload="auto">
+        <source src="../assets/new-order.mp3" type="audio/mpeg">
+    </audio>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let modalDetalhes;
-
+        let notificationSound;
+        let lastOrderCount = <?php echo $total_pedidos; ?>;
+        
         document.addEventListener('DOMContentLoaded', function() {
             modalDetalhes = new bootstrap.Modal(document.getElementById('modalDetalhes'));
+            notificationSound = document.getElementById('newOrderSound');
+            
+            // Restaurar preferência de som
+            const soundEnabled = localStorage.getItem('orderSoundEnabled') !== 'false';
+            document.getElementById('soundToggle').checked = soundEnabled;
+            
+            // Configurar toggle de som
+            document.getElementById('soundToggle').addEventListener('change', function(e) {
+                localStorage.setItem('orderSoundEnabled', e.target.checked);
+            });
+            
+            // Verificar novos pedidos a cada 30 segundos
+            checkNewOrders();
+            setInterval(checkNewOrders, 30000);
             
             // Atualização de status
             document.querySelectorAll('.status-select').forEach(select => {
@@ -186,12 +220,154 @@ $pedidos = $pedido->listarPedidos($status_filtro);
                     atualizarStatus(this.dataset.pedidoId, this.value);
                 });
             });
+
+            // Log inicial
+            console.log('Sistema de notificação iniciado. Som ' + (soundEnabled ? 'ativado' : 'desativado'));
         });
+
+        function checkNewOrders() {
+            console.log('Verificando novos pedidos...');
+            fetch('../api/check-new-orders.php')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Resposta da API não ok: ' + response.status);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Resposta da verificação:', data);
+                    
+                    if (data.hasNewOrders) {
+                        console.log(`Novos pedidos encontrados! Count: ${data.count}, Last: ${lastOrderCount}`);
+                        
+                        if (data.count > lastOrderCount) {
+                            console.log('Tocando notificação...');
+                            playNotification();
+                            
+                            // Mostrar notificação visual
+                            showNotification(`Novo pedido recebido! Total de pedidos novos: ${data.count}`);
+                            
+                            // Recarregar após 2 segundos para garantir que o som toque
+                            setTimeout(() => {
+                                console.log('Recarregando página...');
+                                location.reload();
+                            }, 2000);
+                        }
+                        
+                        lastOrderCount = data.count;
+                    } else {
+                        console.log('Nenhum pedido novo encontrado');
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro ao verificar novos pedidos:', error);
+                    showError('Erro ao verificar novos pedidos: ' + error.message);
+                });
+        }
+
+        function playNotification() {
+            if (localStorage.getItem('orderSoundEnabled') !== 'false' && notificationSound) {
+                console.log('Iniciando reprodução do som...');
+                
+                // Garantir que o áudio está no início
+                notificationSound.currentTime = 0;
+                
+                // Tentar tocar o som
+                notificationSound.play()
+                    .then(() => {
+                        console.log('Som reproduzido com sucesso');
+                    })
+                    .catch(e => {
+                        console.error('Erro ao tocar som:', e);
+                        showError('Erro ao tocar som de notificação');
+                    });
+            } else {
+                console.log('Som desativado ou elemento de áudio não encontrado');
+            }
+        }
+
+        function showNotification(message) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+            alertDiv.style.zIndex = '9999';
+            alertDiv.innerHTML = `
+                <strong><i class="bi bi-bell"></i></strong> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alertDiv);
+            
+            // Remover após 5 segundos
+            setTimeout(() => alertDiv.remove(), 5000);
+        }
+
+        function showError(message) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+            alertDiv.style.zIndex = '9999';
+            alertDiv.innerHTML = `
+                <strong><i class="bi bi-exclamation-triangle"></i></strong> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alertDiv);
+            
+            // Remover após 5 segundos
+            setTimeout(() => alertDiv.remove(), 5000);
+        }
+
+        function simularPedido() {
+            fetch('../api/simular-pedido.php')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        playNotification();
+                        setTimeout(() => location.reload(), 2000);
+                    } else {
+                        alert('Erro ao simular pedido: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    alert('Erro ao simular pedido');
+                });
+        }
+
+        function testSound() {
+            if (notificationSound) {
+                const button = document.querySelector('button[onclick="testSound()"]');
+                const originalText = button.innerHTML;
+                
+                // Mudar aparência do botão
+                button.innerHTML = '<i class="bi bi-volume-up"></i> Tocando...';
+                button.classList.add('btn-success');
+                button.disabled = true;
+
+                notificationSound.currentTime = 0;
+                notificationSound.play()
+                    .then(() => {
+                        console.log('Som testado com sucesso');
+                        // Restaurar botão após 1 segundo
+                        setTimeout(() => {
+                            button.innerHTML = originalText;
+                            button.classList.remove('btn-success');
+                            button.disabled = false;
+                        }, 1000);
+                    })
+                    .catch(e => {
+                        console.error('Erro ao testar som:', e);
+                        alert('Erro ao tocar som. Verifique se seu navegador permite reprodução de áudio.');
+                        // Restaurar botão imediatamente em caso de erro
+                        button.innerHTML = originalText;
+                        button.classList.remove('btn-success');
+                        button.disabled = false;
+                    });
+            }
+        }
 
         function verDetalhes(pedidoId) {
             fetch(`../api/pedidos.php?id=${pedidoId}`)
                 .then(response => response.json())
                 .then(data => {
+                    console.log('Dados do pedido:', data); // Debug
                     const modalBody = document.querySelector('#modalDetalhes .modal-body');
                     
                     let html = `
@@ -199,87 +375,146 @@ $pedidos = $pedido->listarPedidos($status_filtro);
                             <h6>Informações do Cliente</h6>
                             <p>
                                 <strong>Nome:</strong> ${data.pedido.cliente_nome}<br>
-                                <strong>Email:</strong> ${data.pedido.cliente_email}<br>
-                                <strong>Endereço:</strong> ${data.pedido.endereco_entrega}
+                                <strong>Email:</strong> ${data.pedido.cliente_email}
+                            </p>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h6>Endereço de Entrega</h6>
+                            <p>
+                                ${data.pedido.endereco_rua}, ${data.pedido.endereco_numero}
+                                ${data.pedido.endereco_complemento ? `<br>${data.pedido.endereco_complemento}` : ''}
+                                <br>${data.pedido.endereco_bairro}
+                                ${data.pedido.endereco_referencia ? `<br><small class="text-muted">Ref: ${data.pedido.endereco_referencia}</small>` : ''}
+                            </p>
+                        </div>
+
+                        <div class="mb-4">
+                            <h6>Informações do Pagamento</h6>
+                            <p>
+                                <strong>Forma de Pagamento:</strong> ${data.pedido.forma_pagamento}<br>
+                                ${data.pedido.troco_para ? `<strong>Troco para:</strong> R$ ${Number(data.pedido.troco_para).toFixed(2).replace('.', ',')}<br>` : ''}
+                                <strong>Valor Total:</strong> R$ ${Number(data.pedido.valor_total).toFixed(2).replace('.', ',')}
                             </p>
                         </div>
                         
                         <div class="mb-4">
                             <h6>Itens do Pedido</h6>
                             <div class="table-responsive">
-                                <table class="table">
+                                <table class="table table-sm">
                                     <thead>
                                         <tr>
                                             <th>Item</th>
-                                            <th>Quantidade</th>
-                                            <th>Preço Unit.</th>
-                                            <th>Subtotal</th>
+                                            <th>Qtd</th>
+                                            <th class="text-end">Valor Unit.</th>
+                                            <th class="text-end">Subtotal</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                    `;
-
-                    data.itens.forEach(item => {
-                        html += `
-                            <tr>
-                                <td>
-                                    ${item.produto_nome}
-                                    ${item.borda_nome ? `<br><small class="text-muted">Borda: ${item.borda_nome}</small>` : ''}
-                                    ${item.observacoes ? `<br><small class="text-muted">Obs: ${item.observacoes}</small>` : ''}
-                                </td>
-                                <td>${item.quantidade}</td>
-                                <td>R$ ${parseFloat(item.preco_unitario).toFixed(2)}</td>
-                                <td>R$ ${(item.quantidade * item.preco_unitario).toFixed(2)}</td>
-                            </tr>
-                        `;
-                    });
-
-                    html += `
+                                        ${data.itens.map(item => {
+                                            const valorUnitario = Number(item.preco_unitario || item.valor_unitario);
+                                            const subtotal = valorUnitario * item.quantidade;
+                                            return `
+                                                <tr>
+                                                    <td>
+                                                        ${item.produto_nome}
+                                                        ${item.tamanho_nome ? `<br><small>Tamanho: ${item.tamanho_nome}</small>` : ''}
+                                                        ${item.borda_nome ? `<br><small>Borda: ${item.borda_nome}</small>` : ''}
+                                                        ${item.observacoes ? `<br><small class="text-muted">Obs: ${item.observacoes}</small>` : ''}
+                                                    </td>
+                                                    <td>${item.quantidade}</td>
+                                                    <td class="text-end">R$ ${valorUnitario.toFixed(2).replace('.', ',')}</td>
+                                                    <td class="text-end">R$ ${subtotal.toFixed(2).replace('.', ',')}</td>
+                                                </tr>
+                                            `;
+                                        }).join('')}
                                     </tbody>
                                     <tfoot>
                                         <tr>
-                                            <td colspan="3" class="text-end"><strong>Taxa de Entrega:</strong></td>
-                                            <td>R$ ${parseFloat(data.pedido.taxa_entrega).toFixed(2)}</td>
-                                        </tr>
-                                        <tr>
                                             <td colspan="3" class="text-end"><strong>Total:</strong></td>
-                                            <td><strong>R$ ${parseFloat(data.pedido.valor_total).toFixed(2)}</strong></td>
+                                            <td class="text-end"><strong>R$ ${Number(data.pedido.valor_total).toFixed(2).replace('.', ',')}</strong></td>
                                         </tr>
                                     </tfoot>
                                 </table>
                             </div>
                         </div>
-                        
-                        <div>
-                            <h6>Informações do Pagamento</h6>
+
+                        <div class="mb-4">
+                            <h6>Status do Pedido</h6>
                             <p>
-                                <strong>Forma de Pagamento:</strong> ${data.pedido.forma_pagamento.toUpperCase()}<br>
-                                <strong>Data do Pedido:</strong> ${new Date(data.pedido.created_at).toLocaleString()}
+                                <span class="badge ${getStatusClass(data.pedido.status)}">
+                                    ${getStatusText(data.pedido.status)}
+                                </span>
                             </p>
+                            <small class="text-muted">
+                                Pedido feito em: ${new Date(data.pedido.created_at).toLocaleString('pt-BR')}
+                            </small>
                         </div>
                     `;
-
+                    
                     modalBody.innerHTML = html;
                     modalDetalhes.show();
+                })
+                .catch(error => {
+                    console.error('Erro:', error);
+                    alert('Erro ao carregar detalhes do pedido');
                 });
+        }
+
+        function getStatusClass(status) {
+            switch(status) {
+                case 'pendente':
+                    return 'bg-warning';
+                case 'preparando':
+                    return 'bg-info';
+                case 'saiu_entrega':
+                    return 'bg-primary';
+                case 'entregue':
+                    return 'bg-success';
+                case 'cancelado':
+                    return 'bg-danger';
+                default:
+                    return 'bg-secondary';
+            }
+        }
+
+        function getStatusText(status) {
+            switch(status) {
+                case 'pendente':
+                    return 'Recebido';
+                case 'preparando':
+                    return 'Em Preparo';
+                case 'saiu_entrega':
+                    return 'Saiu para Entrega';
+                case 'entregue':
+                    return 'Entregue';
+                case 'cancelado':
+                    return 'Cancelado';
+                default:
+                    return status.charAt(0).toUpperCase() + status.slice(1);
+            }
         }
 
         function atualizarStatus(pedidoId, novoStatus) {
             fetch('../api/pedidos.php', {
                 method: 'PUT',
                 headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Type': 'application/x-www-form-urlencoded'
                 },
-                body: `pedido_id=${pedidoId}&status=${novoStatus}`
+                body: `id=${pedidoId}&status=${novoStatus}`
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Atualiza a página para refletir as mudanças
-                    window.location.reload();
+                    // Atualizado com sucesso
+                    location.reload();
                 } else {
                     alert('Erro ao atualizar status do pedido');
                 }
+            })
+            .catch(error => {
+                console.error('Erro:', error);
+                alert('Erro ao atualizar status do pedido');
             });
         }
     </script>

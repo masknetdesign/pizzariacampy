@@ -35,80 +35,109 @@ $pedidos = $pedido->listarPedidosUsuario($usuario['id']);
     <div class="container mt-4">
         <h2>Meus Pedidos</h2>
         
-        <?php if (empty($pedidos)): ?>
-            <div class="alert alert-info mt-4">
-                Você ainda não fez nenhum pedido.
-                <a href="cardapio.php" class="alert-link">Fazer meu primeiro pedido</a>
-            </div>
-        <?php else: ?>
-            <div class="row mt-4">
-                <?php foreach ($pedidos as $pedido): ?>
+        <div class="row mt-4">
+            <?php if ($pedidos->rowCount() === 0): ?>
+                <div class="col-12">
+                    <div class="alert alert-info">
+                        Você ainda não fez nenhum pedido.
+                        <a href="cardapio.php" class="alert-link">Fazer meu primeiro pedido</a>
+                    </div>
+                </div>
+            <?php else: ?>
+                <?php while ($p = $pedidos->fetch(PDO::FETCH_ASSOC)): ?>
                     <div class="col-md-6 mb-4">
                         <div class="card">
                             <div class="card-header d-flex justify-content-between align-items-center">
-                                <h5 class="mb-0">Pedido #<?php echo $pedido['id']; ?></h5>
-                                <span class="badge <?php echo $pedido['status'] === 'pendente' ? 'bg-warning' : 
-                                    ($pedido['status'] === 'em_preparo' ? 'bg-info' : 
-                                    ($pedido['status'] === 'saiu_entrega' ? 'bg-primary' : 
-                                    ($pedido['status'] === 'entregue' ? 'bg-success' : 'bg-danger'))); ?>">
+                                <h5 class="mb-0">Pedido #<?php echo $p['id']; ?></h5>
+                                <span class="badge <?php 
+                                    switch($p['status']) {
+                                        case 'recebido':
+                                            echo 'bg-warning';
+                                            break;
+                                        case 'preparando':
+                                            echo 'bg-info';
+                                            break;
+                                        case 'saiu_entrega':
+                                            echo 'bg-primary';
+                                            break;
+                                        case 'entregue':
+                                            echo 'bg-success';
+                                            break;
+                                        default:
+                                            echo 'bg-danger';
+                                    }
+                                ?>">
                                     <?php 
-                                        echo $pedido['status'] === 'pendente' ? 'Pendente' :
-                                            ($pedido['status'] === 'em_preparo' ? 'Em Preparo' :
-                                            ($pedido['status'] === 'saiu_entrega' ? 'Saiu para Entrega' :
-                                            ($pedido['status'] === 'entregue' ? 'Entregue' : 'Cancelado')));
+                                        switch($p['status']) {
+                                            case 'recebido':
+                                                echo 'Recebido';
+                                                break;
+                                            case 'preparando':
+                                                echo 'Em Preparo';
+                                                break;
+                                            case 'saiu_entrega':
+                                                echo 'Saiu para Entrega';
+                                                break;
+                                            case 'entregue':
+                                                echo 'Entregue';
+                                                break;
+                                            default:
+                                                echo 'Cancelado';
+                                        }
                                     ?>
                                 </span>
                             </div>
                             <div class="card-body">
-                                <p class="card-text">
+                                <p class="mb-2">
                                     <strong>Data:</strong> 
-                                    <?php echo date('d/m/Y H:i', strtotime($pedido['created_at'])); ?>
+                                    <?php echo date('d/m/Y H:i', strtotime($p['created_at'])); ?>
                                 </p>
-                                <p class="card-text">
+                                <p class="mb-2">
                                     <strong>Endereço:</strong><br>
-                                    <?php echo $pedido['endereco_rua']; ?>, 
-                                    <?php echo $pedido['endereco_numero']; ?><br>
-                                    <?php echo $pedido['endereco_bairro']; ?>
-                                    <?php if ($pedido['endereco_complemento']): ?>
-                                        <br><?php echo $pedido['endereco_complemento']; ?>
-                                    <?php endif; ?>
+                                    <?php 
+                                        echo $p['endereco_rua'] . ', ' . $p['endereco_numero'];
+                                        if (!empty($p['endereco_complemento'])) {
+                                            echo ' - ' . $p['endereco_complemento'];
+                                        }
+                                        echo '<br>' . $p['endereco_bairro'];
+                                        if (!empty($p['endereco_referencia'])) {
+                                            echo '<br><small class="text-muted">Ref: ' . $p['endereco_referencia'] . '</small>';
+                                        }
+                                    ?>
                                 </p>
-                                <p class="card-text">
+                                <p class="mb-2">
                                     <strong>Forma de Pagamento:</strong> 
-                                    <?php echo ucfirst($pedido['forma_pagamento']); ?>
-                                    <?php if ($pedido['troco_para']): ?>
-                                        (Troco para R$ <?php echo number_format($pedido['troco_para'], 2, ',', '.'); ?>)
+                                    <?php echo ucfirst($p['forma_pagamento']); ?>
+                                    <?php if (!empty($p['troco_para'])): ?>
+                                        <br>
+                                        <small>Troco para: R$ <?php echo number_format($p['troco_para'], 2, ',', '.'); ?></small>
                                     <?php endif; ?>
                                 </p>
-                                <p class="card-text">
+                                <p class="mb-3">
                                     <strong>Total:</strong> 
-                                    R$ <?php echo number_format($pedido['valor_total'], 2, ',', '.'); ?>
+                                    R$ <?php echo number_format($p['valor_total'], 2, ',', '.'); ?>
                                 </p>
-                                <button type="button" 
-                                        class="btn btn-primary" 
-                                        onclick="verDetalhes(<?php echo $pedido['id']; ?>)">
+                                <button type="button" class="btn btn-primary" onclick="verDetalhes(<?php echo $p['id']; ?>)">
                                     Ver Detalhes
                                 </button>
                             </div>
                         </div>
                     </div>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
+                <?php endwhile; ?>
+            <?php endif; ?>
+        </div>
     </div>
 
     <!-- Modal de Detalhes -->
     <div class="modal fade" id="modalDetalhes" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Detalhes do Pedido</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div id="detalhes-pedido">
-                        Carregando...
-                    </div>
+                    <!-- Será preenchido via JavaScript -->
                 </div>
             </div>
         </div>
@@ -123,53 +152,104 @@ $pedidos = $pedido->listarPedidosUsuario($usuario['id']);
         });
         
         function verDetalhes(pedidoId) {
-            const detalhesDiv = document.getElementById('detalhes-pedido');
-            detalhesDiv.innerHTML = 'Carregando...';
-            modalDetalhes.show();
-            
             fetch(`api/pedidos.php?id=${pedidoId}`)
                 .then(response => response.json())
                 .then(data => {
-                    let html = '<div class="mb-4">';
-                    html += '<h6>Itens do Pedido:</h6>';
-                    html += '<ul class="list-unstyled">';
+                    const modalBody = document.querySelector('#modalDetalhes .modal-body');
                     
-                    data.itens.forEach(item => {
-                        html += '<li class="mb-2">';
-                        html += `<strong>${item.quantidade}x ${item.produto_nome}</strong>`;
-                        if (item.tamanho_nome) {
-                            html += `<br><small>Tamanho: ${item.tamanho_nome}</small>`;
-                        }
-                        if (item.borda_nome) {
-                            html += `<br><small>Borda: ${item.borda_nome}</small>`;
-                        }
-                        if (item.observacoes) {
-                            html += `<br><small>Obs: ${item.observacoes}</small>`;
-                        }
-                        html += `<br><small>R$ ${(item.preco_unitario * item.quantidade).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</small>`;
-                        html += '</li>';
-                    });
+                    let html = `
+                        <div class="mb-4">
+                            <h6>Status do Pedido</h6>
+                            <div class="alert ${getStatusClass(data.pedido.status)}">
+                                ${getStatusText(data.pedido.status)}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h6>Endereço de Entrega</h6>
+                            <p>
+                                ${data.pedido.endereco_rua}, ${data.pedido.endereco_numero}
+                                ${data.pedido.endereco_complemento ? `<br>${data.pedido.endereco_complemento}` : ''}
+                                <br>${data.pedido.endereco_bairro}
+                                ${data.pedido.endereco_referencia ? `<br><small class="text-muted">Ref: ${data.pedido.endereco_referencia}</small>` : ''}
+                            </p>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <h6>Itens do Pedido</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Item</th>
+                                            <th>Qtd</th>
+                                            <th class="text-end">Valor Unit.</th>
+                                            <th class="text-end">Subtotal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${data.itens.map(item => `
+                                            <tr>
+                                                <td>
+                                                    ${item.produto_nome}
+                                                    ${item.tamanho_nome ? `<br><small>Tamanho: ${item.tamanho_nome}</small>` : ''}
+                                                    ${item.borda_nome ? `<br><small>Borda: ${item.borda_nome}</small>` : ''}
+                                                    ${item.observacoes ? `<br><small>Obs: ${item.observacoes}</small>` : ''}
+                                                </td>
+                                                <td>${item.quantidade}</td>
+                                                <td class="text-end">R$ ${Number(item.valor_unitario).toFixed(2)}</td>
+                                                <td class="text-end">R$ ${(item.quantidade * item.valor_unitario).toFixed(2)}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr>
+                                            <td colspan="3" class="text-end"><strong>Total:</strong></td>
+                                            <td class="text-end"><strong>R$ ${Number(data.pedido.valor_total).toFixed(2)}</strong></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    `;
                     
-                    html += '</ul></div>';
-                    
-                    if (data.pedido.status === 'pendente') {
-                        html += '<div class="alert alert-warning">Aguardando confirmação do estabelecimento</div>';
-                    } else if (data.pedido.status === 'em_preparo') {
-                        html += '<div class="alert alert-info">Seu pedido está sendo preparado</div>';
-                    } else if (data.pedido.status === 'saiu_entrega') {
-                        html += '<div class="alert alert-primary">Seu pedido está a caminho</div>';
-                    } else if (data.pedido.status === 'entregue') {
-                        html += '<div class="alert alert-success">Pedido entregue</div>';
-                    } else {
-                        html += '<div class="alert alert-danger">Pedido cancelado</div>';
-                    }
-                    
-                    detalhesDiv.innerHTML = html;
+                    modalBody.innerHTML = html;
+                    modalDetalhes.show();
                 })
                 .catch(error => {
                     console.error('Erro:', error);
-                    detalhesDiv.innerHTML = 'Erro ao carregar detalhes do pedido';
+                    alert('Erro ao carregar detalhes do pedido');
                 });
+        }
+
+        function getStatusClass(status) {
+            switch(status) {
+                case 'recebido':
+                    return 'alert-warning';
+                case 'preparando':
+                    return 'alert-info';
+                case 'saiu_entrega':
+                    return 'alert-primary';
+                case 'entregue':
+                    return 'alert-success';
+                default:
+                    return 'alert-danger';
+            }
+        }
+
+        function getStatusText(status) {
+            switch(status) {
+                case 'recebido':
+                    return 'Pedido recebido e aguardando preparo';
+                case 'preparando':
+                    return 'Seu pedido está sendo preparado';
+                case 'saiu_entrega':
+                    return 'Seu pedido está a caminho';
+                case 'entregue':
+                    return 'Pedido entregue';
+                default:
+                    return 'Pedido cancelado';
+            }
         }
     </script>
 </body>
